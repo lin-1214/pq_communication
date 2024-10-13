@@ -33,6 +33,5 @@ void print_hex_short(const uint8_t *bytes, size_t length, size_t max);
 void print_short_key_sep(const uint8_t *key, size_t length, size_t show, char* sep);
 void init_to_zero(uint8_t *key, int length);
 void bytes_to_hex_string(const uint8_t *bytes, size_t length, char *hex_string);
-int create_cert_key(SSL_CTX *ctx, char *algname, char *certfilename, char *privkeyfilename);
 
 #endif

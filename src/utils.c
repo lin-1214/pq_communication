@@ -103,7 +103,3 @@ void bytes_to_hex_string(const uint8_t *bytes, size_t length, char *hex_string) 
     }
     hex_string[length * 2] = '\0';  // Null-terminate the string
 }
-
-int create_cert_key(SSL_CTX *ctx, char *algname, char *public_key, char *secret_key) {
-    
-}

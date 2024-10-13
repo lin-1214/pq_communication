@@ -1,136 +1,146 @@
 # include "server.h"
 
-
-SSL_CTX* init_server_CTX(void) {   
-    SSL_CTX *ctx;							
- 
-    OpenSSL_add_all_algorithms();
-    OQS_init();
-    SSL_load_error_strings();
-
-    ctx = SSL_CTX_new(TLS_server_method());
-
-    if ( ctx == NULL ) {
-        ERR_print_errors_fp(stderr);
-        abort();
+void init_party(OQS_KEM *kem, Party *party, int party_num) {
+    party[party_num].commitments = malloc(sizeof(Commitment) * GROUP_SIZE);
+    party[party_num].masterkey = malloc(sizeof(MasterKey) * GROUP_SIZE);
+    party[party_num].pids = malloc(sizeof(Pid) * GROUP_SIZE);
+    party[party_num].coins = malloc(sizeof(Coins) * GROUP_SIZE);
+    party[party_num].xs = malloc(sizeof(X) * GROUP_SIZE);
+    for (int j = 0; j < GROUP_SIZE; j++) {
+      char pid[PID_LENGTH];
+      sprintf(pid, "%s %d", "Party", j);
+      memcpy(party[party_num].pids[j], pid, PID_LENGTH);
     }
-    
-    return ctx;
+
+    // const int DEM_LEN = kem->length_shared_secret + sizeof(int);
+    const int COMMITMENTCOINSBYTES = AES_256_IVEC_LENGTH + kem->length_coins;
+
+    for (int j = 0; j < GROUP_SIZE; j++) {
+      init_commitment(kem, &party[party_num].commitments[j]);
+      party[party_num].coins[j] = malloc(COMMITMENTCOINSBYTES);
+      init_to_zero(party[party_num].coins[j], COMMITMENTCOINSBYTES);
+      party[party_num].masterkey[j] = malloc(kem->length_shared_secret);
+      init_to_zero(party[party_num].masterkey[j], kem->length_shared_secret);
+      party[party_num].xs[j] = malloc(kem->length_shared_secret);
+      init_to_zero(party[party_num].xs[j], kem->length_shared_secret);
+    }
+
+    party[party_num].sid = malloc(kem->length_shared_secret);
+    party[party_num].sk  = malloc(kem->length_shared_secret);
+    party[party_num].key_left = malloc(kem->length_shared_secret);
+    party[party_num].key_right = malloc(kem->length_shared_secret);
+    init_to_zero(party[party_num].sid, kem->length_shared_secret);
+    init_to_zero(party[party_num].sk, kem->length_shared_secret);
+    init_to_zero(party[party_num].key_left, kem->length_shared_secret);
+    init_to_zero(party[party_num].key_right, kem->length_shared_secret);
+
+    party[party_num].public_key = malloc(kem->length_public_key);
+    party[party_num].secret_key  = malloc(kem->length_secret_key);
+    init_to_zero(party[party_num].public_key, kem->length_public_key);
+    init_to_zero(party[party_num].secret_key, kem->length_secret_key);
+
+    OQS_KEM_keypair(kem,
+                    party[party_num].public_key,
+                    party[party_num].secret_key);
+
+    party[party_num].acc = 0;
+    party[party_num].term = 0;
 }
 
-void load_certificates(SSL_CTX* ctx, char* CertFile, char* KeyFile) {
-    
-    if ( SSL_CTX_use_certificate_file(ctx, CertFile, SSL_FILETYPE_PEM) <= 0 ) {
-        ERR_print_errors_fp(stderr);
-        abort();
-    }
-    
-    if ( SSL_CTX_use_PrivateKey_file(ctx, KeyFile, SSL_FILETYPE_PEM) <= 0 ) {
-        ERR_print_errors_fp(stderr);
-        abort();
-    }
-    
-    if ( !SSL_CTX_check_private_key(ctx) ) {
-        fprintf(stderr, "Private key does not match the public certificate\n");
-        abort();
-    }
-}
-
-void generate_cert_and_key(SSL_CTX *ctx, char *public_key, char *secret_key) {
-    OQS_STATUS rc;
-
-    OQS_SIG *sig = OQS_SIG_new(OQS_SIG_alg_sphincs_sha256_128f_simple);
-    if (sig == NULL) {
-        fprintf(stderr, "OQS_SIG_new failed\n");
-        exit(1);
-    }
-
-    rc = OQS_SIG_keypair(sig, public_key, secret_key);
-    if (rc != OQS_SUCCESS) {
-        fprintf(stderr, "OQS_SIG_keypair failed\n");
-        OQS_SIG_free(sig);
-        exit(1);
-    }
-
-    OQS_SIG_free(sig);
-    // EVP_PKEY_free(pkey);
-    // X509_free(x509);
-}
-
-int is_root(void) {
-    if (getuid() != 0) {
-        return 0;
-    }
-    return 1;
-}
-
-int open_listener(int port) {   
-    int sd;
-    struct sockaddr_in addr;			/*creating the sockets*/
- 
-    sd = socket(PF_INET, SOCK_STREAM, 0);
-    bzero(&addr, sizeof(addr));				/*free output the garbage space in memory*/
-    addr.sin_family = AF_INET;				/*getting ip address form machine */
-    addr.sin_port = htons(port);			/* converting host bit to n/w bit */
-    addr.sin_addr.s_addr = INADDR_ANY;
-    if ( bind(sd, (struct sockaddr*)&addr, sizeof(addr)) != 0 ) /* assiging the ip address and port*/
-    {
-        perror("can't bind port");				/* reporting error using errno.h library */
-        abort();						/*if error will be there then abort the process */
-    }
-    if ( listen(sd, GROUP_SIZE) != 0 )					/*for listening to max of 10 clients in the queue*/
-    {
-        perror("Can't configure listening port");		/* reporting error using errno.h library */
-        abort();						/*if erroor will be there then abort the process */
-    }
-
-    return sd;
-}
-
-int main(int argc, char *argv[]) {
-    
-    int server;
+int main(int argc, char** argv) {
+    int server_fd, new_socket;
+    struct sockaddr_in address;
+    int opt = 1;
+    int addrlen = sizeof(address);
+    int party_num = 0;
     int port;
 
-    uint8_t public_key[PUBLIC_KEY_LENGTH]; // 32 bytes for public key
-    uint8_t secret_key[SECRET_KEY_LENGTH]; // 64 bytes for secret key
-
-    // error-proofing
     if (argc != 2) {
-        fprintf(stderr, "Usage: %s <port> \n", argv[0]);
-        return 1;
-    }
-    
-    if (is_root() == 0) {
-        fprintf(stderr, "This program must be run as root/sudo user!!\n");
-        return 1;
+        port = PORT;
+    } else {
+        port = atoi(argv[1]);
     }
 
-    SSL_library_init();
-    port = atoi(argv[1]);
+    Party *party = malloc(sizeof(Party) * GROUP_SIZE);
+    OQS_KEM *kem;
 
-    SSL_CTX* ctx = init_server_CTX();
-    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+    if(!OQS_KEM_alg_is_enabled(KEM)) {
+        printf("%s is not enabled or does not exist!\n", KEM);
+        printf("Available KEM are: \n");
+        for (int i = 0; i < OQS_KEM_alg_count(); i++) {
+        if(OQS_KEM_alg_is_enabled(OQS_KEM_alg_identifier(i)))
+            printf("%s\n", OQS_KEM_alg_identifier(i));
+        }
+        exit(0);
+    } 
 
-    generate_cert_and_key(ctx, public_key, secret_key);
+    kem = OQS_KEM_new(KEM);
+    if(kem == NULL) exit(EXIT_FAILURE);
 
-    // print_sk(public_key, PUBLIC_KEY_LENGTH);
-    // print_sk(secret_key, SECRET_KEY_LENGTH);
-    // printf("Port: %d\n", port);
+    // Create socket file descriptor
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+        perror("socket failed");
+        exit(EXIT_FAILURE);
+    }
 
-    load_certificates(ctx, CERT_FILE, KEY_FILE);
-    server = open_listener(port); 
+    // Set socket options
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
+        perror("setsockopt");
+        exit(EXIT_FAILURE);
+    }
 
-    printf("sd: %d\n", server);
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(port);
+
+    // Bind the socket to the network address and port
+    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+        perror("bind failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Listen for incoming connections
+    if (listen(server_fd, GROUP_SIZE) < 0) {
+        perror("listen");
+        exit(EXIT_FAILURE);
+    }
+
     printf("Server listening on port %d\n", port);
 
-    // struct sockaddr_in addr;						
-    // socklen_t len = sizeof(addr);
-    // SSL *ssl;
- 	// listen(server, 32);						
-    // int client = accept(server, (struct sockaddr*)&addr, &len);  
-    // printf("Connection: %s:%d\n",inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));		
-    // ssl = SSL_new(ctx);           
-    // SSL_set_fd(ssl, client);
+    // Accept and handle incoming connections
+    while(1) {
 
+        if (party_num == GROUP_SIZE) {
+            printf("All parties have joined the group...\n");
+        } else {
+            printf("Waiting for parties to join...\n");
+            if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
+                perror("accept failed");
+                exit(EXIT_FAILURE);
+            }
+
+            printf("Initializing party %d...\n", party_num);
+            init_party(kem, party, party_num);
+            party_num++;
+
+            printf("Party %d joined the group\n", party_num - 1);
+
+            // Send response
+            char hex_key[kem->length_public_key * 2 + 1];
+            for (size_t i = 0; i < kem->length_public_key; i++) {
+                sprintf(hex_key + (i * 2), "%02x", party[party_num - 1].public_key[i]);
+            }
+            send(new_socket, hex_key, strlen(hex_key), 0);
+
+            char hex_secret_key[kem->length_secret_key * 2 + 1];
+            for (size_t i = 0; i < kem->length_secret_key; i++) {
+                sprintf(hex_secret_key + (i * 2), "%02x", party[party_num - 1].secret_key[i]);
+            }
+
+            send(new_socket, hex_secret_key, strlen(hex_secret_key), 0);
+        }
+    }
+
+    close(server_fd);
+    return 0;
 }
