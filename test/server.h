@@ -3,10 +3,10 @@
 #include <unistd.h>	
 #include <malloc.h>		
 #include <string.h>		
-#include <arpa/inet.h>		/*for using ascii to network bit*/	
+#include <arpa/inet.h>	
 #include <sys/socket.h>		
 #include <sys/types.h>		
-#include <netinet/in.h>        /* network to asii bit */
+#include <netinet/in.h>
 #include <resolv.h>		
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -24,17 +24,9 @@
 # define GROUP_SIZE 32
 # define KEM "Kyber512"
 
-# define CERT_FILE "../assets/server_cert.pem"
-# define KEY_FILE "../assets/server_key.pem"
 # define PUBLIC_KEY_LENGTH 32
 # define SECRET_KEY_LENGTH 64
 
-// int open_listener(int port);
-// int is_root(void);
-// SSL_CTX* init_server_CTX(void);
-// void load_certificates(SSL_CTX* ctx, char* CertFile, char* KeyFile);
-// void generate_cert_and_key(SSL_CTX *ctx, char *public_key, char *secret_key);
-// void show_certs(SSL* ssl);
-
-void setup_KEM(OQS_KEM *kem); 
 void init_party(OQS_KEM *kem, Party *party, int party_num);
+void update_left_right_keys(Party *party, int party_num, OQS_KEM *kem);
+void free_party(Party *party, int idx, int party_num);

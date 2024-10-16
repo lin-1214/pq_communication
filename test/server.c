@@ -47,6 +47,35 @@ void init_party(OQS_KEM *kem, Party *party, int party_num) {
     party[party_num].term = 0;
 }
 
+void update_left_right_keys(Party *party, int party_num, OQS_KEM *kem) {
+    for (int j = 0; j < party_num; j++) {
+        int left = mod(j - 1, party_num);
+        int right = mod(j + 1, party_num);
+        memcpy(party[j].key_left, party[left].public_key, kem->length_public_key);
+        memcpy(party[j].key_right, party[right].public_key, kem->length_public_key);
+    }
+}
+
+void free_party(Party *party, int idx, int party_num) {
+    for (int i = 0; i < party_num; i++) {
+      free(party[idx].coins[i]);
+      free(party[idx].masterkey[i]);
+      free(party[idx].xs[i]);
+    }
+
+    free(party[idx].masterkey);
+    free(party[idx].pids);
+    free(party[idx].coins);
+    free(party[idx].xs);
+    free(party[idx].sid);
+    free(party[idx].sk);
+    free(party[idx].key_left);
+    free(party[idx].key_right);
+    free(party[idx].public_key);
+    free(party[idx].secret_key);
+}
+
+
 int main(int argc, char** argv) {
     int server_fd, new_socket;
     struct sockaddr_in address;
@@ -54,6 +83,11 @@ int main(int argc, char** argv) {
     int addrlen = sizeof(address);
     int party_num = 0;
     int port;
+    int file_descriptor[GROUP_SIZE];
+
+    for (int i = 0; i < GROUP_SIZE; i++) {
+        file_descriptor[i] = -1;
+    }
 
     if (argc != 2) {
         port = PORT;
@@ -109,7 +143,7 @@ int main(int argc, char** argv) {
 
     // Accept and handle incoming connections
     while(1) {
-
+        
         if (party_num == GROUP_SIZE) {
             printf("All parties have joined the group...\n");
         } else {
@@ -121,26 +155,70 @@ int main(int argc, char** argv) {
 
             printf("Initializing party %d...\n", party_num);
             init_party(kem, party, party_num);
-            party_num++;
+            file_descriptor[party_num] = new_socket;
 
-            printf("Party %d joined the group\n", party_num - 1);
+            printf("Party %d joined the group\n", party_num);
 
             // Send response
             char hex_key[kem->length_public_key * 2 + 1];
             for (size_t i = 0; i < kem->length_public_key; i++) {
-                sprintf(hex_key + (i * 2), "%02x", party[party_num - 1].public_key[i]);
+                sprintf(hex_key + (i * 2), "%02x", party[party_num].public_key[i]);
             }
+            printf("Sending public key to party %d...\n", party_num);
             send(new_socket, hex_key, strlen(hex_key), 0);
+            memset(hex_key, 0, kem->length_public_key * 2 + 1);
+            
 
             char hex_secret_key[kem->length_secret_key * 2 + 1];
             for (size_t i = 0; i < kem->length_secret_key; i++) {
-                sprintf(hex_secret_key + (i * 2), "%02x", party[party_num - 1].secret_key[i]);
+                sprintf(hex_secret_key + (i * 2), "%02x", party[party_num].secret_key[i]);
             }
-
+            printf("Sending secret key to party %d...\n", party_num);
             send(new_socket, hex_secret_key, strlen(hex_secret_key), 0);
+            memset(hex_secret_key, 0, kem->length_secret_key * 2 + 1);
+
+            party_num++;
+            // TODO: construct this block to a function returning boolean to regenerate 
+            // when fails
+            if (party_num > 1) {
+                printf("Group formed, computing keys...\n");
+                compute_left_right_keys(kem, party, party_num);
+                compute_xs_commitments(kem, party, party_num, kem->length_shared_secret);
+                
+                for (int i = 0; i < party_num; i++) {
+                    int res = check_xs(kem, party, i, party_num, kem->length_shared_secret); // Check Xi
+                    int result = check_commitments(party, i, party_num, kem->length_shared_secret);
+                    if (res == 0 || result == 0) {
+                        // TODO: change the structure of party array and fd array
+                        // Maybe by link list?
+                        printf("Party %d is not valid...\n", i);
+                        file_descriptor[i] = -1;
+                        party_num--;
+                        free_party(party, i, party_num);
+                        close(file_descriptor[i]);
+                    }
+                }
+                // Master Key
+                compute_masterkey(kem, party, party_num, kem->length_shared_secret);
+                // Compute session key and session identifier
+                compute_sk_sid(kem, party, party_num, kem->length_shared_secret);
+                
+                for (int i = 0; i < party_num; i++) {
+                    char hex_session_key[kem->length_shared_secret * 2 + 1];
+                    for (size_t j = 0; j < kem->length_shared_secret; j++) {
+                        sprintf(hex_session_key + (j * 2), "%02x", party[i].sk[j]);
+                    }
+
+                    send(file_descriptor[i], hex_session_key, strlen(hex_session_key), 0);
+                    memset(hex_session_key, 0, kem->length_shared_secret * 2 + 1);
+                }
+            }
         }
     }
 
     close(server_fd);
+    for (int i = 0; i < party_num; i++) {
+        close(file_descriptor[i]);
+    }
     return 0;
 }

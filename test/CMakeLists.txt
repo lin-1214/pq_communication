@@ -46,9 +46,13 @@ set(SERVER server.c ../src/gake.c ../src/commitment.c)
 add_executable(server ${SERVER})
 target_link_libraries(server PUBLIC gake commitment ${OPENSSL_CRYPTO_LIBRARY})
 target_link_libraries(server PRIVATE m)
-
-# Add this line to append the link options at the end
 target_link_options(server PRIVATE "LINKER:-L/usr/lib,-lssl,-lcrypto")
+
+set(CLIENT client.c ../src/gake.c ../src/commitment.c)
+add_executable(client ${CLIENT})
+target_link_libraries(client PUBLIC gake commitment ${OPENSSL_CRYPTO_LIBRARY})
+target_link_libraries(client PRIVATE m)
+target_link_options(client PRIVATE "LINKER:-L/usr/lib,-lssl,-lcrypto")
 
 add_test(NAME aes256gcm COMMAND test_aes256gcm)
 add_test(NAME test_fsxy_ake COMMAND test_fsxy_ake)
