@@ -1,60 +1,53 @@
 # include "server.h"
 
-void init_party(OQS_KEM *kem, Party *party, int party_num) {
-    party[party_num].commitments = malloc(sizeof(Commitment) * GROUP_SIZE);
-    party[party_num].masterkey = malloc(sizeof(MasterKey) * GROUP_SIZE);
-    party[party_num].pids = malloc(sizeof(Pid) * GROUP_SIZE);
-    party[party_num].coins = malloc(sizeof(Coins) * GROUP_SIZE);
-    party[party_num].xs = malloc(sizeof(X) * GROUP_SIZE);
-    for (int j = 0; j < GROUP_SIZE; j++) {
-      char pid[PID_LENGTH];
-      sprintf(pid, "%s %d", "Party", j);
-      memcpy(party[party_num].pids[j], pid, PID_LENGTH);
-    }
+void init_party(OQS_KEM *kem, Party *party) {
+    for (int i = 0; i < GROUP_SIZE; i++) {
+        party[i].commitments = malloc(sizeof(Commitment) * GROUP_SIZE);
+        party[i].masterkey = malloc(sizeof(MasterKey) * GROUP_SIZE);
+        party[i].pids = malloc(sizeof(Pid) * GROUP_SIZE);
+        party[i].coins = malloc(sizeof(Coins) * GROUP_SIZE);
+        party[i].xs = malloc(sizeof(X) * GROUP_SIZE);
+        for (int j = 0; j < GROUP_SIZE; j++) {
+            char pid[PID_LENGTH];
+            sprintf(pid, "%s %d", "Party", j);
+            memcpy(party[i].pids[j], pid, PID_LENGTH);
+        }
 
-    // const int DEM_LEN = kem->length_shared_secret + sizeof(int);
-    const int COMMITMENTCOINSBYTES = AES_256_IVEC_LENGTH + kem->length_coins;
+        // const int DEM_LEN = kem->length_shared_secret + sizeof(int);
+        const int COMMITMENTCOINSBYTES = AES_256_IVEC_LENGTH + kem->length_coins;
 
-    for (int j = 0; j < GROUP_SIZE; j++) {
-      init_commitment(kem, &party[party_num].commitments[j]);
-      party[party_num].coins[j] = malloc(COMMITMENTCOINSBYTES);
-      init_to_zero(party[party_num].coins[j], COMMITMENTCOINSBYTES);
-      party[party_num].masterkey[j] = malloc(kem->length_shared_secret);
-      init_to_zero(party[party_num].masterkey[j], kem->length_shared_secret);
-      party[party_num].xs[j] = malloc(kem->length_shared_secret);
-      init_to_zero(party[party_num].xs[j], kem->length_shared_secret);
-    }
+        for (int j = 0; j < GROUP_SIZE; j++) {
+            init_commitment(kem, &party[i].commitments[j]);
+            party[i].coins[j] = malloc(COMMITMENTCOINSBYTES);
+            init_to_zero(party[i].coins[j], COMMITMENTCOINSBYTES);
+            party[i].masterkey[j] = malloc(kem->length_shared_secret);
+            init_to_zero(party[i].masterkey[j], kem->length_shared_secret);
+            party[i].xs[j] = malloc(kem->length_shared_secret);
+            init_to_zero(party[i].xs[j], kem->length_shared_secret);
+        }
 
-    party[party_num].sid = malloc(kem->length_shared_secret);
-    party[party_num].sk  = malloc(kem->length_shared_secret);
-    party[party_num].key_left = malloc(kem->length_shared_secret);
-    party[party_num].key_right = malloc(kem->length_shared_secret);
-    init_to_zero(party[party_num].sid, kem->length_shared_secret);
-    init_to_zero(party[party_num].sk, kem->length_shared_secret);
-    init_to_zero(party[party_num].key_left, kem->length_shared_secret);
-    init_to_zero(party[party_num].key_right, kem->length_shared_secret);
+        party[i].sid = malloc(kem->length_shared_secret);
+        party[i].sk  = malloc(kem->length_shared_secret);
+        party[i].key_left = malloc(kem->length_shared_secret);
+        party[i].key_right = malloc(kem->length_shared_secret);
+        init_to_zero(party[i].sid, kem->length_shared_secret);
+        init_to_zero(party[i].sk, kem->length_shared_secret);
+        init_to_zero(party[i].key_left, kem->length_shared_secret);
+        init_to_zero(party[i].key_right, kem->length_shared_secret);
 
-    party[party_num].public_key = malloc(kem->length_public_key);
-    party[party_num].secret_key  = malloc(kem->length_secret_key);
-    init_to_zero(party[party_num].public_key, kem->length_public_key);
-    init_to_zero(party[party_num].secret_key, kem->length_secret_key);
+        party[i].public_key = malloc(kem->length_public_key);
+        party[i].secret_key  = malloc(kem->length_secret_key);
+        init_to_zero(party[i].public_key, kem->length_public_key);
+        init_to_zero(party[i].secret_key, kem->length_secret_key);
 
-    OQS_KEM_keypair(kem,
-                    party[party_num].public_key,
-                    party[party_num].secret_key);
-
-    party[party_num].acc = 0;
-    party[party_num].term = 0;
-}
-
-void update_left_right_keys(Party *party, int party_num, OQS_KEM *kem) {
-    for (int j = 0; j < party_num; j++) {
-        int left = mod(j - 1, party_num);
-        int right = mod(j + 1, party_num);
-        memcpy(party[j].key_left, party[left].public_key, kem->length_public_key);
-        memcpy(party[j].key_right, party[right].public_key, kem->length_public_key);
+        party[i].acc = 0;
+        party[i].term = 0;
     }
 }
+
+// void update_left_right_keys(Party *party, int party_num, OQS_KEM *kem) {
+//     return;
+// }
 
 void free_party(Party *party, int idx, int party_num) {
     for (int i = 0; i < party_num; i++) {
@@ -154,26 +147,30 @@ int main(int argc, char** argv) {
             }
 
             printf("Initializing party %d...\n", party_num);
-            init_party(kem, party, party_num);
+            init_party(kem, party);
+            OQS_KEM_keypair(kem, party[party_num].public_key, party[party_num].secret_key);
             file_descriptor[party_num] = new_socket;
 
             printf("Party %d joined the group\n", party_num);
 
             // Send response
             char hex_key[kem->length_public_key * 2 + 1];
+
             for (size_t i = 0; i < kem->length_public_key; i++) {
                 sprintf(hex_key + (i * 2), "%02x", party[party_num].public_key[i]);
             }
             printf("Sending public key to party %d...\n", party_num);
+            // printf("encap: %s\n", hex_key);
             send(new_socket, hex_key, strlen(hex_key), 0);
             memset(hex_key, 0, kem->length_public_key * 2 + 1);
             
 
             char hex_secret_key[kem->length_secret_key * 2 + 1];
+
             for (size_t i = 0; i < kem->length_secret_key; i++) {
                 sprintf(hex_secret_key + (i * 2), "%02x", party[party_num].secret_key[i]);
             }
-            printf("Sending secret key to party %d...\n", party_num);
+            // printf("decap: %s\n", hex_secret_key);
             send(new_socket, hex_secret_key, strlen(hex_secret_key), 0);
             memset(hex_secret_key, 0, kem->length_secret_key * 2 + 1);
 
@@ -182,9 +179,12 @@ int main(int argc, char** argv) {
             // when fails
             if (party_num > 1) {
                 printf("Group formed, computing keys...\n");
+                print_party(kem, party, 0, party_num, 50);
                 compute_left_right_keys(kem, party, party_num);
+                print_party(kem, party, 0, party_num, 50);
                 compute_xs_commitments(kem, party, party_num, kem->length_shared_secret);
-                
+                print_party(kem, party, 0, party_num, 50);
+
                 for (int i = 0; i < party_num; i++) {
                     int res = check_xs(kem, party, i, party_num, kem->length_shared_secret); // Check Xi
                     int result = check_commitments(party, i, party_num, kem->length_shared_secret);

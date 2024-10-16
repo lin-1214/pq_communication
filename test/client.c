@@ -4,7 +4,7 @@ void flush_socket(int sock) {
     int flags = fcntl(sock, F_GETFL, 0);
     fcntl(sock, F_SETFL, flags | O_NONBLOCK);
 
-    char temp_buffer[1024];
+    char temp_buffer[BUFFER_SIZE];
     ssize_t bytes_read;
     do {
         bytes_read = recv(sock, temp_buffer, sizeof(temp_buffer), 0);
@@ -17,11 +17,30 @@ int main(int argc, char const *argv[]) {
     int sock = 0;
     int port = PORT;
     struct sockaddr_in serv_addr;
-    char buffer[BUFFER_SIZE] = {0};
+    // char buffer[BUFFER_SIZE];
     
     if (argc > 1) {
         port = atoi(argv[1]);
     }
+
+    OQS_KEM *kem;
+
+    if(!OQS_KEM_alg_is_enabled(KEM)) {
+        printf("%s is not enabled or does not exist!\n", KEM);
+        printf("Available KEM are: \n");
+        for (int i = 0; i < OQS_KEM_alg_count(); i++) {
+        if(OQS_KEM_alg_is_enabled(OQS_KEM_alg_identifier(i)))
+            printf("%s\n", OQS_KEM_alg_identifier(i));
+        }
+        exit(0);
+    } 
+
+    kem = OQS_KEM_new(KEM);
+    if(kem == NULL) exit(EXIT_FAILURE);
+
+    char public_key[2*kem->length_public_key+1];
+    char secret_key[2*kem->length_secret_key+1];
+    char shared_key[2*kem->length_shared_secret+1];
 
     // Create socket
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -45,15 +64,11 @@ int main(int argc, char const *argv[]) {
     }
     
     // Receive first message
-    read(sock, buffer, BUFFER_SIZE);
-    printf("Encapsulated key: %s\n", buffer);
+    read(sock, public_key, 2*kem->length_public_key+1);
+    // printf("Encapsulated key: %s\n", public_key);
     
-    memset(buffer, 0, BUFFER_SIZE);
-    
-    read(sock, buffer, BUFFER_SIZE);
-    printf("Decapsulated key: %s\n", buffer);
-
-    memset(buffer, 0, BUFFER_SIZE);
+    read(sock, secret_key, 2*kem->length_secret_key+1);
+    // printf("Decapsulated key: %s\n", secret_key);
 
     struct pollfd fds[2];
     fds[0].fd = sock;
@@ -76,18 +91,7 @@ int main(int argc, char const *argv[]) {
         }
         
         if (fds[0].revents & POLLIN) {
-            flush_socket(sock);
-            int valread = read(sock, buffer, BUFFER_SIZE);
-            if (valread > 0) {
-                printf("Server: \n%s\n", buffer);
-                memset(buffer, 0, BUFFER_SIZE);
-            } else if (valread == 0) {
-                printf("Server disconnected\n");
-                break;
-            } else {
-                perror("read error");
-                break;
-            }
+            read(sock, shared_key, 2*kem->length_shared_secret+1);
         }
         
         if (fds[1].revents & POLLIN) {

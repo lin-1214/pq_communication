@@ -27,6 +27,6 @@
 # define PUBLIC_KEY_LENGTH 32
 # define SECRET_KEY_LENGTH 64
 
-void init_party(OQS_KEM *kem, Party *party, int party_num);
+void init_party(OQS_KEM *kem, Party *party);
 void update_left_right_keys(Party *party, int party_num, OQS_KEM *kem);
 void free_party(Party *party, int idx, int party_num);
